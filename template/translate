@@ -1,0 +1,145 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+import sys
+
+BRAINFUCK_COMMANDS = ('>', '<', '+', '-', '.', ',', '[', ']')
+MAX_STEPS = 10_000_000
+
+class BrainfuckInterpreter:
+    translation_map = {}
+
+    def translate(self, source_code):
+        translated_code = source_code
+        if "" in self.translation_map:
+             pass
+        for original_word in sorted(self.translation_map.keys(), key=len, reverse=True):
+            if not original_word: continue
+            bf_command = self.translation_map[original_word]
+            translated_code = translated_code.replace(original_word, bf_command)
+        return translated_code
+
+    def execute(self, bf_code):
+        clean_code = ''.join(filter(lambda x: x in BRAINFUCK_COMMANDS, bf_code))
+        if clean_code.count('[') != clean_code.count(']'):
+            print("構文エラー: ループの開始と終了の数が合いません。", file=sys.stderr)
+            sys.exit(1)
+            
+        tape = [0] * 30000
+        ptr = code_ptr = 0
+        jump_stack = []
+        step_counter = 0
+
+        while code_ptr < len(clean_code):
+            if step_counter > MAX_STEPS:
+                print(f"実行時エラー: 実行ステップ数が上限({MAX_STEPS:,}回)を超えました。", file=sys.stderr)
+                sys.exit(1)
+
+            command = clean_code[code_ptr]
+
+            if command == '>':
+                if ptr >= len(tape) - 1:
+                    print(f"実行時エラー: テープの範囲外(右)にアクセスしようとしました。", file=sys.stderr)
+                    sys.exit(1)
+                ptr += 1
+            elif command == '<':
+                if ptr <= 0:
+                    print(f"実行時エラー: テープの範囲外(左)にアクセスしようとしました。", file=sys.stderr)
+                    sys.exit(1)
+                ptr -= 1
+            elif command == '+': tape[ptr] = (tape[ptr] + 1) % 256
+            elif command == '-': tape[ptr] = (tape[ptr] - 1 + 256) % 256
+            elif command == '.': sys.stdout.write(chr(tape[ptr])); sys.stdout.flush()
+            elif command == ',':
+                char = sys.stdin.read(1)
+                if char: tape[ptr] = ord(char)
+                else: tape[ptr] = 0 
+            elif command == '[':
+                if tape[ptr] == 0:
+                    loop_level = 1
+                    code_ptr += 1
+                    while code_ptr < len(clean_code):
+                        if clean_code[code_ptr] == '[': loop_level += 1
+                        elif clean_code[code_ptr] == ']': loop_level -= 1
+                        
+                        if loop_level == 0:
+                            break
+                        
+                        code_ptr += 1
+                    
+                    if loop_level != 0:
+                        print("構文エラー: 対応する']'が見つからない'['があります。", file=sys.stderr)
+                        sys.exit(1)
+                else:
+                    jump_stack.append(code_ptr)
+            elif command == ']':
+                if not jump_stack:
+                    print("構文エラー: 対応する'['が見つからない']'があります。", file=sys.stderr)
+                    sys.exit(1)
+                if tape[ptr] != 0:
+                    code_ptr = jump_stack[-1]
+                else:
+                    jump_stack.pop()
+            
+            code_ptr += 1
+            step_counter += 1
+
+    def run_from_source(self, source_code):
+        bf_code = self.translate(source_code)
+        self.execute(bf_code)
+        print()
+
+def show_help(interpreter_class):
+    script_name = sys.argv[0].split('/')[-1]
+    print(f"Brainfuck系言語インタープリター: {interpreter_class.__name__}")
+    print("="*50)
+    print("【使い方】")
+    print(f"  python {script_name} <ソースファイル名>")
+    print("\n【ヘルプ表示】")
+    print(f"  ./{script_name} --help")
+    print("\n【現在定義されているコマンド一覧】")
+    max_len = max(len(word) for word in interpreter_class.translation_map.keys()) if interpreter_class.translation_map else 0
+    for word, command in interpreter_class.translation_map.items():
+        print(f"  {word:<{max_len}}  =>  {command}")
+
+# ======================================================================================================================
+
+# 言語名変更
+class Lang(BrainfuckInterpreter):
+
+    # 対応文字変更
+    translation_map = [
+        "", # 1. ポインタを右へ (>)
+        "", # 2. ポインタを左へ (<)
+        "", # 3. 値をプラス (+)
+        "", # 4. 値をマイナス (-)
+        "", # 5. 値を文字で出力 (.)
+        "", # 6. 1文字入力 (,)
+        "", # 7. ループ開始 ([)
+        "", # 8. ループ終了 (])
+    ]
+    assert len(translation_map) == len(BRAINFUCK_COMMANDS), \
+        "言語定義エラー: コマンドの数はちょうど8個にしてください。"
+    assert all(translation_map.keys()), \
+        "言語定義エラー: 空の文字列をコマンド名として定義することはできません。"
+    assert set(translation_map.values()) == set(BRAINFUCK_COMMANDS), \
+        "言語定義エラー: 対応するBrainfuck命令に重複や間違いがあります。"
+
+if __name__ == "__main__":
+
+    #言語名変更
+    active_interpreter_class = Lang
+
+# ======================================================================================================================
+
+    if len(sys.argv) != 2 or sys.argv[1] in ("--help", "-h"):
+        show_help(active_interpreter_class)
+        sys.exit(0) 
+    source_file_path = sys.argv[1]
+    try:
+        with open(source_file_path, 'r', encoding='utf-8') as f:
+            source_code = f.read()
+    except FileNotFoundError:
+        print(f"エラー: ファイル '{source_file_path}' が見つかりません。", file=sys.stderr)
+        sys.exit(1)
+    interpreter = active_interpreter_class()
+    interpreter.run_from_source(source_code)
